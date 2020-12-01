@@ -23,17 +23,17 @@ object driver {
       .appName("cpts415-bigdata")
       .config("spark.some.config.option", "some-value")//.master("local[*]")
       .getOrCreate()
-    spark.sparkContext.addFile("/home/ubuntu/CPTS-415-Project-Template/data/airports.csv")
-    spark.sparkContext.addFile("/home/ubuntu/CPTS-415-Project-Template/data/airlines.csv")
-    spark.sparkContext.addFile("/home/ubuntu/CPTS-415-Project-Template/data/RouteRelationships.csv")
-    spark.sparkContext.addFile("/home/ubuntu/CPTS-415-Project-Template/data/RouteAirports.csv")
+    spark.sparkContext.addFile("./data/airports.csv")
+    spark.sparkContext.addFile("./data/airlines.csv")
+    spark.sparkContext.addFile("./data/NewRouteAirports.csv")
+    spark.sparkContext.addFile("./data/RouteAirports.csv")
     /**
      * Load CSV file into Spark SQL
      */
     // You can replace the path in .csv() to any local path or HDFS path
     var airports = spark.read.options(Map("inferSchema"->"true","delimiter"->",","header"->"true")).csv(SparkFiles.get("airports.csv"))
     var airlines = spark.read.options(Map("inferSchema"->"true","delimiter"->",","header"->"true")).csv(SparkFiles.get("airlines.csv"))
-    var routeEdges = spark.read.options(Map("inferSchema"->"true","delimiter"->",","header"->"true")).csv(SparkFiles.get("RouteRelationships.csv"))
+    var routeEdges = spark.read.options(Map("inferSchema"->"true","delimiter"->",","header"->"true")).csv(SparkFiles.get("NewRouteAirports.csv"))
     var routeAiports = spark.read.options(Map("inferSchema"->"true","delimiter"->",","header"->"true")).csv(SparkFiles.get("RouteAirports.csv"))
     airports.createOrReplaceTempView("airports")
     airlines.createOrReplaceTempView("airlines")
@@ -74,13 +74,13 @@ object driver {
         |""".stripMargin
     )
     CountryAirlines.show()
-    new_users.write.mode(SaveMode.Overwrite).options(Map("inferSchema"->"true","delimiter"->",","header"->"true")).csv("data/new-users.csv")
+
 
     /**
      * The GraphFrame function.
      */
 
-    // Create a Vertex DataFrame with unique ID column "id"
+     //Create a Vertex DataFrame with unique ID column "id"
     val v = routeAiports
     // Create an Edge DataFrame with "src" and "dst" columns
     val e = routeEdges
@@ -89,37 +89,47 @@ object driver {
 
 
 //    g.vertices.show()
-    g.edges.show()
+//    g.edges.show()
 
 //    val results = g.bfs.fromExpr("id='SEA'").toExpr("id='DEN'").maxPathLength(2).run()
 //    results.show()
 
-    val result = g.bfs.fromExpr("id='SEA'").toExpr("id<>'SEA'").maxPathLength(2).run()
-    result.show(false)
-    
-    /**
-     * DO NOT RECOMMEND. Shortest path using GraphX (only show distance): https://spark.apache.org/docs/latest/graphx-programming-guide.html#pregel-api
-     */
+//    val result = g.bfs.fromExpr("id='SEA'").toExpr("id<>'SEA'").maxPathLength(2).run()
+//    result.show(false)
+//
+//    val neigh = g.triplets.filter("src.id == 'SEA'")
+//    neigh.show()
 
-    // A graph with edge attributes containing distances
-    val graph: Graph[Long, Double] =
-    GraphGenerators.logNormalGraph(spark.sparkContext, numVertices = 100).mapEdges(e => e.attr.toDouble)
-    val sourceId: VertexId = 42 // The ultimate source
-    // Initialize the graph such that all vertices except the root have distance infinity.
-    val initialGraph = graph.mapVertices((id, _) =>
-      if (id == sourceId) 0.0 else Double.PositiveInfinity)
-    val sssp = initialGraph.pregel(Double.PositiveInfinity)(
-      (id, dist, newDist) => math.min(dist, newDist), // Vertex Program
-      triplet => {  // Send Message
-        if (triplet.srcAttr + triplet.attr < triplet.dstAttr) {
-          Iterator((triplet.dstId, triplet.srcAttr + triplet.attr))
-        } else {
-          Iterator.empty
-        }
-      },
-      (a, b) => math.min(a, b) // Merge Message
-    )
-    println(sssp.vertices.collect.mkString("\n"))
+    /**
+     * Sample of what the filter is supposed to do.
+     * Pattern Matching given n hops
+     */
+    //    val pattern = "(x1) - [a] -> (x2); (x2) - [b] -> (x3)"
+    //
+    //    val paths = g.find(pattern).filter("x1.id == 'SEA' and x3.id != 'SEA' and x3.id == 'DEN' and b.Airline == a.Airline")
+    //    paths.show()
+
+
+    val alpha = "abcdefghijklmnopqrstuvwxyz"
+    var pat = "(x1) - [a] -> (x2)"
+    var max = 2
+    var hops = 3
+    for (a <- 2 to hops){
+      pat = pat + "; (x" + a.toString + ") - [" + alpha.charAt(a-1) + "] -> " + "(x" + (a+1).toString + ")"
+      max = max + 1
+    }
+
+    var src = "'SEA'"
+    var dst = "'DEN'"
+    var fill = "x1.id=="+src+" and x"+max.toString+".id=="+dst+" and x"+max.toString+".id!="+src
+    for (a <- 2 to hops){
+      fill = fill + " and " + alpha.charAt(a-2) + ".airline == "+alpha.charAt(a-1)+".airline"
+    }
+    println(pat)
+    println(fill)
+
+    val paths = g.find(pat).filter(fill)
+    paths.show()
 
     /**
      * Stop the Spark session
